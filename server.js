@@ -117,9 +117,5 @@ app.post('/webhooks/otp', (req, res) => {
   return res.json({ ok: true });
 });
 
-app.get("/", (req, res) => {
-  res.send("✅ Voucher Redeem API is running successfully!");
-});
-
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log('Server running on :' + PORT));
