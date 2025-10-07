@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Tebus Voucher</title>
+  <style>
+    body { font-family: Arial, sans-serif; max-width: 520px; margin: 24px auto; padding: 0 16px; }
+    .card { border: 1px solid #ddd; border-radius: 12px; padding: 16px; box-shadow: 0 2px 8px rgba(0,0,0,.05); }
+    .row { margin: 8px 0; }
+    .btn { padding: 10px 14px; border: none; border-radius: 8px; cursor: pointer; }
+    .btn-primary { background: #1a73e8; color: white; }
+    .muted { color: #666; font-size: 14px; }
+    #otp { font-size: 28px; letter-spacing: 2px; }
+    select, input { width: 100%; padding: 10px; border-radius: 8px; border: 1px solid #ccc; }
+  </style>
+</head>
+<body>
+  <h2>Tebus Voucher</h2>
+  <div class="card">
+    <form id="redeemForm">
+      <div class="row">
+        <label>Jenis App</label><br/>
+        <select name="service" required>
+          <option value="" disabled selected>Pilih salah satu</option>
+          <option value="zus">ZUS Coffee</option>
+          <option value="tealive">Tealive</option>
+          <option value="chagee">ChaGee</option>
+          <option value="kfc">KFC</option>
+        </select>
+      </div>
+      <div class="row">
+        <label>Order ID Shopee</label><br/>
+        <input name="order_id" placeholder="contoh: 231110ABC123" required/>
+      </div>
+      <button class="btn btn-primary" type="submit">Semak & Tebus</button>
+    </form>
+  </div>
+
+  <div id="status" style="margin-top:16px;"></div>
+
+  <script>
+  let redemptionId = null, startTime = null;
+  const WAIT_MS = 15 * 60 * 1000; // 15 minit
+
+  redeemForm.onsubmit = async (e) => {
+    e.preventDefault();
+    const form = new FormData(e.target);
+    const payload = Object.fromEntries(form.entries());
+    status.innerHTML = 'Memproses…';
+    const r = await fetch('/api/redeem/start', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(payload)
+    });
+    const data = await r.json();
+    if (!r.ok) { status.innerHTML = `<span style="color:red">${data.error||'Gagal'}</span>`; return; }
+    redemptionId = data.redemption_id; startTime = Date.now();
+    renderStatus({ state:'WAITING_OTP', voucher_number: data.voucher_number, attempts: 0, can_retry: true, service_label: data.service_label });
+    poll();
+  };
+
+  async function poll(){
+    if(!redemptionId) return;
+    const r = await fetch(`/api/redeem/status/${redemptionId}`);
+    const s = await r.json();
+    renderStatus(s);
+    if (!s.otp && s.state !== 'SUCCESS') setTimeout(poll, 3000);
+  }
+
+  async function retry(){
+    const r = await fetch('/api/redeem/retry', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ redemption_id: redemptionId }) });
+    const data = await r.json();
+    if (!r.ok) { alert(data.error||'Retry gagal'); return; }
+    startTime = Date.now();
+    renderStatus({ state:'WAITING_OTP', voucher_number: data.voucher_number, attempts: 0, can_retry: true });
+    poll();
+  }
+
+  function renderStatus(s){
+    const elapsed = startTime ? (Date.now() - startTime) : 0;
+    const remain = Math.max(0, WAIT_MS - elapsed);
+    const mm = String(Math.floor(remain/60000)).padStart(2,'0');
+    const ss = String(Math.floor((remain%60000)/1000)).padStart(2,'0');
+
+    if (s.otp){
+      status.innerHTML = `<div class="card">
+        <div class="row">App: <b>${s.service_label||'-'}</b></div>
+        <div class="row">Nombor voucher: <b>${s.voucher_number}</b></div>
+        <div class="row">OTP anda:</div>
+        <div id="otp">${s.otp}</div>
+        <div class="muted">Status: ${s.state}</div></div>`;
+      return;
+    }
+
+    let retryBtn = '';
+    if (remain === 0 && s.can_retry){
+      retryBtn = `<div class="row"><button class="btn" onclick="retry()">Tak dapat OTP? Minta Nombor Baharu</button></div>`;
+    }
+
+    status.innerHTML = `
+      <div class="card">
+        <div class="row">App: <b>${s.service_label||'-'}</b></div>
+        <div class="row">Nombor voucher: <b>${s.voucher_number||'-'}</b></div>
+        <div class="row">Status: <b>${s.state}</b></div>
+        <div class="row muted">Menunggu OTP… Kiraan masa: ${mm}:${ss}</div>
+        ${retryBtn}
+      </div>`;
+  }
+  </script>
+</body>
+</html>
